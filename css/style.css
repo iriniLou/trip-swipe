@@ -101,6 +101,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .who { display: flex; gap: 6px; }
 .who .av { font-size: 13px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--chip); display: flex; align-items: center; gap: 4px; font-weight: 700; }
 .who .av span { font-size: 18px; }
+.top-actions { display: flex; gap: 6px; margin-left: auto; }
+.icon-btn {
+  width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--bg2);
+  font-size: 17px; display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.icon-btn.on { border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(123, 77, 255, .25); }
+@media (max-width: 420px) {
+  .who .av { padding: 4px; font-size: 0; }
+  .who .av span { font-size: 18px; }
+  .room-pill { padding: 7px 10px; }
+}
 main { flex: 1; min-height: 0; position: relative; }
 .view { position: absolute; inset: 0; overflow-y: auto; padding: 4px 16px calc(var(--tabs-h) + env(safe-area-inset-bottom) + 18px); }
 #view-swipe { display: flex; flex-direction: column; overflow: hidden; }
@@ -150,6 +161,32 @@ main { flex: 1; min-height: 0; position: relative; }
 .badge { background: rgba(0, 0, 0, .55); color: #fff; backdrop-filter: blur(6px); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
 .badge.hot { background: var(--accent); }
 .badge.must { background: #ffb000; color: #2b1d00; }
+.badge.sugg { background: var(--grad); }
+.sugg-dot { font-family: Manrope, sans-serif; font-size: 11px; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 6px; margin-left: 2px; }
+
+/* ——— Предложение места ——— */
+.ap-photo { min-height: 64px; border: 1.5px dashed var(--line); border-radius: 14px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 4px; }
+.ap-photo img { width: 100%; max-height: 240px; object-fit: cover; display: block; }
+.howto { margin: 4px 0 2px; }
+.howto summary { cursor: pointer; }
+.howto p { margin: 6px 0; }
+#ap-img { margin-top: 6px; }
+
+/* ——— Плеер ——— */
+.now { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; }
+.now b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
+.eq i { width: 3px; height: 4px; background: var(--accent); border-radius: 2px; }
+.eq.on i { animation: eq .9s ease-in-out infinite; }
+.eq.on i:nth-child(2) { animation-delay: .2s; }
+.eq.on i:nth-child(3) { animation-delay: .4s; }
+@keyframes eq { 50% { height: 14px; } }
+.vol { display: flex; align-items: center; gap: 8px; }
+.vol input { flex: 1; padding: 0; accent-color: var(--accent); border: 0; background: none; }
+.tracks { display: flex; flex-direction: column; gap: 4px; }
+.track { display: flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 4px 6px; }
+.track span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.track.cur { box-shadow: inset 0 0 0 2px var(--accent2); }
 .card .body { padding: 14px 16px 16px; flex: 1 1 48%; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
 .card h3 { margin: 0; font-size: 19px; line-height: 1.2; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--ink2); font-size: 13px; font-weight: 600; }

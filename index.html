@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="css/style.css?v=5">
+<link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
 
@@ -54,6 +54,11 @@
     <button class="room-pill" id="room-pill" title="Комната">
       <span id="sync-dot" class="dot"></span><span id="room-code-top"></span>
     </button>
+    <div class="top-actions">
+      <button class="icon-btn" id="btn-suggest" title="Предложить место">💡</button>
+      <button class="icon-btn" id="btn-mute" title="Включить или выключить музыку" hidden>🔊</button>
+      <button class="icon-btn" id="btn-music" title="Музыка">🎵</button>
+    </div>
     <div class="who" id="who-top"></div>
   </header>
 
@@ -131,16 +136,17 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="js/vendor/nostr.bundle.js?v=5"></script>
-<script src="js/data/_base.js?v=5"></script>
-<script src="js/data/sg.js?v=5"></script>
-<script src="js/data/seoul.js?v=5"></script>
-<script src="js/data/korea.js?v=5"></script>
-<script src="js/data/transit.js?v=5"></script>
-<script src="js/trip.js?v=5"></script>
-<script src="js/tips.js?v=5"></script>
-<script src="js/sync.js?v=5"></script>
-<script src="js/export.js?v=5"></script>
-<script src="js/app.js?v=5"></script>
+<script src="js/vendor/nostr.bundle.js?v=6"></script>
+<script src="js/data/_base.js?v=6"></script>
+<script src="js/data/sg.js?v=6"></script>
+<script src="js/data/seoul.js?v=6"></script>
+<script src="js/data/korea.js?v=6"></script>
+<script src="js/data/transit.js?v=6"></script>
+<script src="js/trip.js?v=6"></script>
+<script src="js/tips.js?v=6"></script>
+<script src="js/sync.js?v=6"></script>
+<script src="js/music.js?v=6"></script>
+<script src="js/export.js?v=6"></script>
+<script src="js/app.js?v=6"></script>
 </body>
 </html>

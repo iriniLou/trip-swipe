@@ -51,6 +51,8 @@
     this.ok = {};
     this.lastCreated = 0;
     this.pending = null;
+    this.blobEvents = {};
+    this.blobWant = {};
     this.sk = getSecretKey();
     this.pub = NostrTools.getPublicKey(this.sk);
     this.ready = this._derive();
@@ -113,6 +115,9 @@
       ws.send(JSON.stringify(['REQ', subId, { kinds: [KIND], '#d': [self.tag], limit: 100 }]));
       self._status();
       if (self.lastEvent) ws.send(JSON.stringify(['EVENT', self.lastEvent]));
+      Object.values(self.blobEvents).forEach(function (ev) { ws.send(JSON.stringify(['EVENT', ev])); });
+      var want = Object.keys(self.blobWant);
+      if (want.length) self._reqBlobs(ws, want);
     };
     ws.onmessage = function (m) {
       var msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
@@ -132,15 +137,43 @@
   };
 
   Room.prototype._incoming = async function (ev) {
-    var tagOk = (ev.tags || []).some(function (t) { return t[0] === 'd' && t[1] === this.tag; }, this);
-    if (!tagOk) return;
+    var d = ((ev.tags || []).filter(function (t) { return t[0] === 'd'; })[0] || [])[1];
+    if (!d || (d !== this.tag && d.indexOf(this.tag + ':') !== 0)) return;
     this.seen = this.seen || {};
     if (this.seen[ev.id]) return;
     this.seen[ev.id] = 1;
     try {
-      var state = await this._decrypt(ev.content);
-      if (state) this.h.onState(state, ev.pubkey === this.pub);
+      var data = await this._decrypt(ev.content);
+      if (!data) return;
+      if (d === this.tag) this.h.onState(data, ev.pubkey === this.pub);
+      else if (this.h.onBlob) this.h.onBlob(d.slice(this.tag.length + 1), data.v);
     } catch (e) { /* чужое или битое событие — пропускаем */ }
+  };
+
+  // Отдельные зашифрованные записи для тяжёлых данных (фото предложенных мест), ключ — например «ph:abc123»
+  Room.prototype._reqBlobs = function (ws, keys) {
+    var self = this;
+    ws.send(JSON.stringify(['REQ', 'tb' + Math.random().toString(36).slice(2, 8),
+      { kinds: [KIND], '#d': keys.map(function (k) { return self.tag + ':' + k; }), limit: keys.length * 3 }]));
+  };
+  Room.prototype.wantBlobs = async function (keys) {
+    await this.ready;
+    var self = this, fresh = keys.filter(function (k) { return !self.blobWant[k]; });
+    if (!fresh.length) return;
+    fresh.forEach(function (k) { self.blobWant[k] = 1; });
+    Object.values(this.sockets).forEach(function (ws) { if (ws.readyState === 1) self._reqBlobs(ws, fresh); });
+  };
+  Room.prototype.gotBlob = function (key) { delete this.blobWant[key]; };
+  Room.prototype.publishBlob = async function (key, value) {
+    await this.ready;
+    var ev = NostrTools.finalizeEvent({
+      kind: KIND, created_at: Math.floor(Date.now() / 1000),
+      tags: [['d', this.tag + ':' + key], ['client', 'trip-swipe']],
+      content: await this._encrypt({ v: value })
+    }, this.sk);
+    this.blobEvents[key] = ev;
+    var raw = JSON.stringify(['EVENT', ev]);
+    Object.values(this.sockets).forEach(function (ws) { if (ws.readyState === 1) ws.send(raw); });
   };
 
   Room.prototype.publish = function (state) {

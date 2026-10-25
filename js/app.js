@@ -103,8 +103,9 @@
     Object.keys(S.state.c).forEach(function (id) {
       var c = S.state.c[id];
       if (c.x) return;
-      ALL.push({ id: 'c-' + id, cid: id, custom: true, city: c.city || cityFor(c.lat, c.lng), cat: c.cat || 'sight', name: c.name,
-        area: 'добавила ' + memberName(c.a), lat: c.lat, lng: c.lng, price: c.price == null ? 1 : c.price, time: '', desc: c.desc || '', tip: '', wiki: '', tags: ['своё'] });
+      ALL.push({ id: 'c-' + id, cid: id, custom: true, by: c.a, created: c.c || c.ts, city: c.city || cityFor(c.lat, c.lng), cat: c.cat || 'sight', name: c.name,
+        area: '💡 предложила ' + memberName(c.a), lat: c.lat, lng: c.lng, price: c.price == null ? 1 : c.price, time: '', desc: c.desc || '', tip: '', wiki: '',
+        img: c.img || '', ph: !!c.ph, tags: ['предложение'] });
     });
     PLACE = {};
     ALL.forEach(function (p) { PLACE[p.id] = p; });
@@ -149,11 +150,39 @@
     r = Math.round(r * 0.45 + 40); g = Math.round(g * 0.35 + 20); b = Math.round(b * 0.55 + 70);
     return 'rgb(' + r + ',' + g + ',' + b + ')';
   }
+  // ——— Фото предложенных мест: хранятся отдельно, шифруются кодом комнаты ———
+  function blobKey(p) { return 'ph:' + p.cid; }
+  function cachedBlob(key) { return lsGet('ts_blob_' + S.code + '_' + key, null); }
+  function wantPhotos() {
+    if (!S.room) return;
+    var keys = ALL.filter(function (p) { return p.custom && p.ph && !cachedBlob(blobKey(p)); }).map(blobKey);
+    if (keys.length) S.room.wantBlobs(keys);
+  }
+  function republishPhotos() {
+    // каждая копия фото на серверах — ещё одна страховка, поэтому делимся всеми, что есть на устройстве
+    ALL.forEach(function (p) {
+      if (!p.custom || !p.ph) return;
+      var v = cachedBlob(blobKey(p)); if (v) S.room.publishBlob(blobKey(p), v);
+    });
+  }
+  function onBlob(key, value) {
+    if (typeof value !== 'string' || value.indexOf('data:image/') !== 0) return;
+    lsSet('ts_blob_' + S.code + '_' + key, value);
+    S.room.gotBlob(key);
+    $$('[data-photo-key="' + key + '"]').forEach(function (el) { fillPhoto(el, PLACE['c-' + key.slice(3)]); });
+  }
+  function photoSrc(p) {
+    if (p.custom) return Promise.resolve(p.img || (p.ph ? cachedBlob(blobKey(p)) : null));
+    return photo(p);
+  }
   function fillPhoto(el, p) {
-    photo(p).then(function (src) {
+    if (!p) return;
+    if (p.custom && p.ph) el.dataset.photoKey = blobKey(p);
+    if (el.querySelector('img')) return;
+    photoSrc(p).then(function (src) {
       if (!src || !el.isConnected) return;
       var img = new Image(); img.alt = ''; img.referrerPolicy = 'no-referrer';
-      img.onload = function () { el.prepend(img); var e = el.querySelector('.emo'); if (e) e.style.opacity = 0; };
+      img.onload = function () { if (el.querySelector('img')) return; el.prepend(img); var e = el.querySelector('.emo'); if (e) e.style.opacity = 0; };
       // Википедия отдаёт только стандартные ширины: пробуем 960px, иначе исходную миниатюру
       img.onerror = function () { if (img.src !== src) img.src = src; };
       img.src = /\/\d+px-/.test(src) ? src.replace(/\/\d+px-/, '/960px-') : src;
@@ -232,21 +261,30 @@
     S.room = new TripSync.Room(S.code, {
       onState: function (st) {
         var before = matchIds();
+        var suggBefore = pendingSuggestions().map(function (p) { return p.id; });
         if (mergeInto(S.state, st)) {
           rebuildPlaces();
           lsSet('ts_state_' + S.code, S.state);
+          wantPhotos();
           var after = matchIds().filter(function (id) { return before.indexOf(id) < 0 && myVote(id) > 0; });
+          var newSugg = pendingSuggestions().filter(function (p) { return suggBefore.indexOf(p.id) < 0; });
           if (after.length && !firstSync) showMatch(PLACE[after[0]], after.length);
+          if (newSugg.length) {
+            var p = newSugg[0];
+            toast('💡 ' + memberName(p.by) + ' предлагает: ' + p.name + (newSugg.length > 1 ? ' и ещё ' + (newSugg.length - 1) : '') + ' — уже первая в колоде');
+          }
           if (!dragging) render();
         }
       },
+      onBlob: onBlob,
       onSynced: function () {
-        if (firstSync) { firstSync = false; S.room.publish(function () { return S.state; }); }
+        if (firstSync) { firstSync = false; S.room.publish(function () { return S.state; }); republishPhotos(); }
       },
       onStatus: function (st) { S.status = st; renderTop(); }
     });
     S.room.connect();
-    setTimeout(function () { firstSync = false; S.room.publish(function () { return S.state; }); }, 4000);
+    wantPhotos();
+    setTimeout(function () { if (firstSync) { firstSync = false; S.room.publish(function () { return S.state; }); republishPhotos(); } }, 4000);
     setView(S.view);
   }
 
@@ -308,10 +346,20 @@
       S.deck = S.deck.filter(function (id) { return ids[id]; });
       pool.forEach(function (p) { if (S.deck.indexOf(p.id) < 0) S.deck.push(p.id); });
     }
+    // Предложения подруги — всегда в начале колоды, самые свежие первыми
+    var sugg = pool.filter(isSuggestionForMe).sort(function (a, b) { return b.created - a.created; }).map(function (p) { return p.id; });
+    S.deck = sugg.concat(S.deck.filter(function (id) { return sugg.indexOf(id) < 0; }));
     return S.deck;
   }
+  function isSuggestionForMe(p) { return p.custom && p.by !== S.me.key && myVote(p.id) === 0; }
+  function pendingSuggestions(city) { return ALL.filter(function (p) { return (!city || p.city === city) && isSuggestionForMe(p); }); }
   function renderSwipe() {
     citySeg($('#city-seg'), S.city, function (v) { S.city = v; S.cat = 'all'; render(); });
+    // значок с числом новых предложений у каждого города
+    $$('#city-seg button').forEach(function (b) {
+      var n = pendingSuggestions(b.dataset.v).length;
+      if (n) b.insertAdjacentHTML('beforeend', ' <b class="sugg-dot">💡' + n + '</b>');
+    });
     var cats = {}; ALL.forEach(function (p) { if (p.city === S.city) cats[p.cat] = (cats[p.cat] || 0) + 1; });
     var chips = [['all', '✨ Все']].concat(Object.keys(CATS).filter(function (k) { return cats[k]; }).map(function (k) { return [k, CATS[k].e + ' ' + CATS[k].n]; }));
     var ch = $('#cat-chips');
@@ -368,7 +416,9 @@
   }
   function updateBadges(c, p) {
     var b = [];
+    if (p.custom) b.push('<span class="badge sugg">💡 ' + esc(memberAv(p.by)) + ' ' + esc(memberName(p.by)) + (p.by === S.me.key ? ' (ты)' : '') + ' предлагает</span>');
     likers(p.id).forEach(function (m) {
+      if (p.custom && m.key === p.by) return;
       if (m.key !== S.me.key) b.push('<span class="badge hot">' + esc(m.av) + ' ' + esc(m.name) + (voteOf(m.key, p.id) === 2 ? ' очень хочет ★' : ' хочет ♥') + '</span>');
     });
     if (p.tags.indexOf('must') >= 0) b.push('<span class="badge must">must see</span>');
@@ -782,49 +832,158 @@
   document.addEventListener('click', function (e) {
     var b = e.target.closest('.pop-btn'); if (b) openPlace(b.dataset.open);
   });
+  // Координаты и название из того, что вставили: ссылка Google/Apple Карт, «1.2816, 103.8636» или 1°16'53.8"N 103°51'49.0"E
+  function parseLocation(text) {
+    var t = String(text || '').trim(), s = t;
+    try { s = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) {}
+    var lat, lng, m;
+    var pats = [
+      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,                        // Google: точка самого места
+      /@(-?\d+\.\d+),\s*(-?\d+\.\d+)/,                          // Google: центр карты
+      /[?&](?:q|query|ll|sll|daddr|coordinate|center)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/i, // Google/Apple параметры
+      /(-?\d{1,2}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})/        // просто «широта, долгота»
+    ];
+    for (var i = 0; i < pats.length && lat == null; i++) { m = pats[i].exec(s); if (m) { lat = +m[1]; lng = +m[2]; } }
+    if (lat == null && (m = /(\d+)°\s*(\d+)['′]\s*([\d.]+)["″]?\s*([NS])[\s,]*(\d+)°\s*(\d+)['′]\s*([\d.]+)["″]?\s*([EW])/i.exec(s))) {
+      lat = (+m[1] + m[2] / 60 + m[3] / 3600) * (/s/i.test(m[4]) ? -1 : 1);
+      lng = (+m[5] + m[6] / 60 + m[7] / 3600) * (/w/i.test(m[8]) ? -1 : 1);
+    }
+    var ok = lat != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+    var name = '';
+    if ((m = /\/place\/([^/@?]+)/.exec(s))) name = m[1];
+    else if ((m = /[?&]name=([^&]+)/.exec(s))) name = m[1];
+    else if ((m = /maps\.apple\.com\/[^#]*[?&]q=([^&]+)/.exec(s)) && !/^-?\d/.test(m[1])) name = m[1];
+    return { ok: ok, lat: ok ? +lat.toFixed(6) : null, lng: ok ? +lng.toFixed(6) : null, name: name.trim(), short: /goo\.gl|maps\.app\.goo/.test(t) };
+  }
+
+  // Фото сжимаем до ~45 КБ, чтобы оно поместилось в одну зашифрованную запись
+  function compressPhoto(file) {
+    return new Promise(function (res, rej) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var max = 720, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h));
+        var out = null;
+        for (var step = 0; step < 6; step++) {
+          var c = document.createElement('canvas');
+          c.width = Math.round(w * k); c.height = Math.round(h * k);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', step < 3 ? 0.72 - step * 0.12 : 0.45);
+          if (out.length < 60000) break;
+          if (step >= 2) k *= 0.75;
+        }
+        URL.revokeObjectURL(url);
+        res(out);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('bad image')); };
+      img.src = url;
+    });
+  }
+
   function openAddPlace(lat, lng) {
     openSheet('add');
     var catOpts = Object.keys(CATS).map(function (k) { return '<option value="' + k + '">' + CATS[k].e + ' ' + CATS[k].n + '</option>'; }).join('');
-    $('#sheet-body').innerHTML = '<div class="sh-pad"><h2>＋ Своё место</h2><p class="muted small">Нашли что-то в TikTok или Instagram? Добавьте — оно появится у обеих в колоде и на карте.</p>' +
+    var others_ = others().map(function (m) { return m.name; }).join(' и ') || 'подруги';
+    $('#sheet-body').innerHTML = '<div class="sh-pad"><h2>💡 Предложить место</h2>' +
+      '<p class="muted small">Нашла что-то в TikTok, Instagram или на карте? Добавь — у ' + esc(others_) + ' это место первым появится в свайпах, а у тебя оно сразу отмечено как «хочу».</p>' +
+      '<div class="sec-h">📍 Ссылка или координаты</div>' +
+      '<textarea id="ap-link" placeholder="Вставь ссылку из Google/Apple Карт или координаты, например 1.2816, 103.8636" style="min-height:64px"></textarea>' +
+      '<div id="ap-loc" class="muted small" style="margin:6px 0"></div>' +
+      '<details class="howto"><summary class="muted small">Как скопировать координаты?</summary><div class="muted small">' +
+      '<p><b>Google Карты:</b> нажми и подержи точку на карте — координаты появятся в строке поиска, скопируй их. На компьютере подойдёт и обычная ссылка из адресной строки.</p>' +
+      '<p><b>Apple Карты:</b> открой место → «Поделиться» → «Скопировать» и вставь ссылку сюда. Или поставь булавку: координаты будут внизу карточки.</p>' +
+      '<p>Короткие ссылки вида maps.app.goo.gl отсюда не читаются — открой такую ссылку и скопируй координаты, или найди место по названию ниже.</p></div></details>' +
+      '<div class="btn-row"><button class="btn sm" id="ap-search">🔎 Найти по названию</button><button class="btn sm" id="ap-tap">👆 Указать на карте</button></div>' +
+      '<div id="ap-res" class="list"></div>' +
+      '<div class="sec-h">✏️ Что за место</div>' +
       '<input id="ap-name" placeholder="Название" style="margin-bottom:8px"><select id="ap-cat" style="margin-bottom:8px">' + catOpts + '</select>' +
-      '<textarea id="ap-desc" placeholder="Описание / ссылка / почему хотим" style="margin-bottom:8px;min-height:70px"></textarea>' +
-      '<div class="sec-h">📍 Где это</div>' +
-      (lat != null ? '<div class="muted small">Точка на карте: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>' :
-        '<div class="day-add"><input id="ap-q" placeholder="Найти адрес или название"><button class="btn" id="ap-search">Найти</button></div><div id="ap-res" class="list" style="margin-top:8px"></div>' +
-        '<div class="btn-row"><button class="btn sm" id="ap-tap">Указать на карте вручную</button></div>') +
-      '<input type="hidden" id="ap-lat" value="' + (lat != null ? lat : '') + '"><input type="hidden" id="ap-lng" value="' + (lng != null ? lng : '') + '">' +
-      '<button class="btn big primary" id="ap-save" style="margin-top:12px">Добавить место</button></div>';
-    var draft = lsGet('ts_add_draft', null);
-    if (draft) { $('#ap-name').value = draft.name || ''; $('#ap-desc').value = draft.desc || ''; $('#ap-cat').value = draft.cat || 'sight'; }
-    if (lat == null) {
-      $('#ap-tap').onclick = function () {
-        lsSet('ts_add_draft', { name: $('#ap-name').value, desc: $('#ap-desc').value, cat: $('#ap-cat').value });
-        closeSheet(); setView('map'); addMode = true; $('#map-hint').hidden = false;
-      };
-      $('#ap-search').onclick = function () {
-        var qv = $('#ap-q').value.trim() || $('#ap-name').value.trim(); if (!qv) return;
-        $('#ap-res').innerHTML = '<div class="muted small">Ищу…</div>';
-        fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=sg,kr,cn&accept-language=ru,en&q=' + encodeURIComponent(qv))
-          .then(function (r) { return r.json(); }).then(function (j) {
-            if (!j.length) { $('#ap-res').innerHTML = '<div class="muted small">Ничего не нашлось — попробуйте по-английски или укажите на карте.</div>'; return; }
-            $('#ap-res').innerHTML = j.map(function (x) { return '<button class="btn" style="text-align:left;white-space:normal" data-ll="' + x.lat + ',' + x.lon + '">' + esc(x.display_name) + '</button>'; }).join('');
-          }).catch(function () { $('#ap-res').innerHTML = '<div class="muted small">Поиск недоступен — укажите на карте.</div>'; });
-      };
-      $('#ap-res').onclick = function (e) {
-        var b = e.target.closest('[data-ll]'); if (!b) return;
-        var ll = b.dataset.ll.split(','); $('#ap-lat').value = ll[0]; $('#ap-lng').value = ll[1];
-        $$('#ap-res button').forEach(function (x) { x.classList.toggle('primary', x === b); });
-      };
+      '<textarea id="ap-desc" placeholder="Заметка: что там, почему хотим, цены, часы работы, ссылка на рилс…" style="min-height:80px"></textarea>' +
+      '<div class="sec-h">📸 Фото</div>' +
+      '<div class="ap-photo" id="ap-photo"><span class="muted small">Нет фото</span></div>' +
+      '<div class="btn-row"><label class="btn sm">Выбрать фото<input type="file" id="ap-file" accept="image/*" hidden></label><button class="btn sm" id="ap-photo-del" hidden>Убрать фото</button></div>' +
+      '<input id="ap-img" placeholder="…или ссылка на картинку (https://…)">' +
+      '<input type="hidden" id="ap-lat"><input type="hidden" id="ap-lng"><input type="hidden" id="ap-ph">' +
+      '<button class="btn big primary" id="ap-save" style="margin-top:14px">Предложить 💡</button></div>';
+
+    function setLoc(la, ln, src) {
+      $('#ap-lat').value = la; $('#ap-lng').value = ln;
+      var city = CITY[cityFor(la, ln)];
+      $('#ap-loc').innerHTML = '✅ ' + (+la).toFixed(5) + ', ' + (+ln).toFixed(5) + ' · ' + city.flag + ' ' + city.name + (src ? ' · ' + esc(src) : '');
     }
+    function setPhoto(dataUrl) {
+      $('#ap-ph').value = dataUrl || '';
+      $('#ap-photo').innerHTML = dataUrl ? '<img alt="" src="' + dataUrl + '">' : '<span class="muted small">Нет фото</span>';
+      $('#ap-photo-del').hidden = !dataUrl;
+    }
+    function saveDraft() {
+      lsSet('ts_add_draft', { name: $('#ap-name').value, desc: $('#ap-desc').value, cat: $('#ap-cat').value, link: $('#ap-link').value,
+        lat: $('#ap-lat').value, lng: $('#ap-lng').value, ph: $('#ap-ph').value, img: $('#ap-img').value });
+    }
+    var draft = lsGet('ts_add_draft', null);
+    if (draft) {
+      $('#ap-name').value = draft.name || ''; $('#ap-desc').value = draft.desc || ''; $('#ap-cat').value = draft.cat || 'sight';
+      $('#ap-link').value = draft.link || ''; $('#ap-img').value = draft.img || '';
+      if (draft.lat && draft.lng) setLoc(draft.lat, draft.lng);
+      if (draft.ph) setPhoto(draft.ph);
+    }
+    if (lat != null) setLoc(lat, lng, 'точка на карте');
+
+    $('#ap-link').oninput = function () {
+      var v = $('#ap-link').value;
+      if (!v.trim()) { $('#ap-loc').textContent = ''; return; }
+      var r = parseLocation(v);
+      if (r.ok) {
+        setLoc(r.lat, r.lng);
+        if (r.name && !$('#ap-name').value.trim()) $('#ap-name').value = r.name;
+      } else {
+        $('#ap-lat').value = $('#ap-lng').value = '';
+        $('#ap-loc').innerHTML = r.short ? '⚠️ Это короткая ссылка — открой её и скопируй координаты, или найди место по названию.' : '⚠️ Не вижу координат. Вставь ссылку целиком или числа вида 1.2816, 103.8636.';
+      }
+    };
+    $('#ap-tap').onclick = function () {
+      saveDraft();
+      closeSheet(); setView('map'); addMode = true; $('#map-hint').hidden = false;
+    };
+    $('#ap-search').onclick = function () {
+      var qv = $('#ap-name').value.trim() || $('#ap-link').value.trim();
+      if (!qv) { toast('Сначала напиши название'); $('#ap-name').focus(); return; }
+      $('#ap-res').innerHTML = '<div class="muted small">Ищу «' + esc(qv) + '»…</div>';
+      fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=sg,kr,cn&accept-language=ru,en&q=' + encodeURIComponent(qv))
+        .then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.length) { $('#ap-res').innerHTML = '<div class="muted small">Ничего не нашлось — попробуй по-английски, вставь координаты или укажи на карте.</div>'; return; }
+          $('#ap-res').innerHTML = j.map(function (x) { return '<button class="btn" style="text-align:left;white-space:normal" data-ll="' + x.lat + ',' + x.lon + '">' + esc(x.display_name) + '</button>'; }).join('');
+        }).catch(function () { $('#ap-res').innerHTML = '<div class="muted small">Поиск недоступен — вставь координаты или укажи на карте.</div>'; });
+    };
+    $('#ap-res').onclick = function (e) {
+      var b = e.target.closest('[data-ll]'); if (!b) return;
+      var ll = b.dataset.ll.split(','); setLoc(ll[0], ll[1], 'найдено поиском');
+      $$('#ap-res button').forEach(function (x) { x.classList.toggle('primary', x === b); });
+    };
+    $('#ap-file').onchange = function (e) {
+      var f = e.target.files[0]; if (!f) return;
+      $('#ap-photo').innerHTML = '<span class="muted small">Сжимаю фото…</span>';
+      compressPhoto(f).then(setPhoto).catch(function () { setPhoto(''); toast('Не получилось открыть фото'); });
+    };
+    $('#ap-photo-del').onclick = function () { setPhoto(''); };
+
     $('#ap-save').onclick = function () {
       var name = $('#ap-name').value.trim(), la = parseFloat($('#ap-lat').value), ln = parseFloat($('#ap-lng').value);
-      if (!name) { toast('Напишите название'); return; }
-      if (isNaN(la) || isNaN(ln)) { toast('Выберите место в поиске или на карте'); return; }
-      var id = uid();
-      change(function (st) { st.c[id] = { name: name, cat: $('#ap-cat').value, desc: $('#ap-desc').value.trim(), lat: la, lng: ln, city: cityFor(la, ln), a: S.me.key, ts: now() }; });
+      if (isNaN(la) || isNaN(ln)) { toast('Добавь координаты, найди по названию или укажи на карте'); return; }
+      if (!name) { toast('Напиши название'); $('#ap-name').focus(); return; }
+      var img = $('#ap-img').value.trim(), ph = $('#ap-ph').value;
+      if (img && !/^https?:\/\//i.test(img)) img = '';
+      var id = uid(), t = now();
+      change(function (st) {
+        st.c[id] = { name: name, cat: $('#ap-cat').value, desc: $('#ap-desc').value.trim(), lat: la, lng: ln, city: cityFor(la, ln),
+          img: img, ph: ph ? 1 : 0, a: S.me.key, c: t, ts: t };
+        st.v[S.me.key + '|c-' + id] = [1, t]; // своё предложение — сразу «хочу»
+      });
+      if (ph) {
+        lsSet('ts_blob_' + S.code + '_ph:' + id, ph);
+        S.room.publishBlob('ph:' + id, ph);
+      }
       lsSet('ts_add_draft', null);
-      S.deckKey = '';
-      closeSheet(); toast('Место добавлено ✨');
+      closeSheet();
+      toast('💡 Предложено! У ' + others_ + ' оно будет первым в свайпах');
       openPlace('c-' + id);
     };
   }
@@ -960,6 +1119,48 @@
     $('#rm-me').onclick = function () { lsSet('ts_me_' + S.code, null); S.room.close(); S.room = null; showGate(); startWho(S.code, false); };
     $('#rm-leave').onclick = function () { lsSet('ts_current', null); S.room.close(); S.room = null; S.me = null; showGate(); };
   }
+  // ——— Музыка ———
+  function renderMusicButtons() {
+    var st = TripMusic.state(), b = $('#btn-mute');
+    b.hidden = !st.tracks.length;
+    b.textContent = st.muted ? '🔇' : '🔊';
+    b.title = st.muted ? 'Включить музыку' : 'Выключить музыку';
+    $('#btn-music').classList.toggle('on', st.playing);
+  }
+  function openMusic() {
+    openSheet('music');
+    renderMusicSheet();
+  }
+  function renderMusicSheet() {
+    if (sheetKind !== 'music') return;
+    var st = TripMusic.state();
+    $('#sheet-body').innerHTML = '<div class="sh-pad"><h2>🎵 Фоновая музыка</h2>' +
+      '<p class="muted small">Песни играют по кругу, в случайном порядке. Они хранятся только в памяти этого телефона и никуда не загружаются, поэтому каждая добавляет свои файлы у себя (например, mp3 из «Файлов» или Telegram).</p>' +
+      (st.tracks.length ?
+        '<button class="btn big ' + (st.muted ? '' : 'primary') + '" id="mu-toggle">' + (st.muted ? '🔇 Музыка выключена — включить' : '🔊 Музыка играет — выключить') + '</button>' +
+        '<div class="now">' + (st.currentName ? '<span class="eq' + (st.playing ? ' on' : '') + '"><i></i><i></i><i></i></span> <b>' + esc(st.currentName) + '</b>' : '') +
+        '<button class="btn sm" id="mu-next">⏭ Следующая</button></div>' +
+        '<label class="vol">🔈<input type="range" id="mu-vol" min="0" max="1" step="0.05" value="' + st.volume + '">🔊</label>' +
+        '<div class="sec-h">Плейлист · ' + st.tracks.length + '</div><div class="tracks">' + st.tracks.map(function (t, i) {
+          return '<div class="track' + (t.id === st.current ? ' cur' : '') + '"><button class="btn sm ghost" data-play="' + i + '">▶</button><span>' + esc(t.name) + '</span><button class="btn sm ghost" data-del="' + esc(t.id) + '" title="Убрать">✕</button></div>';
+        }).join('') + '</div>'
+        : '<div class="empty"><span class="big-emo">🎧</span>Пока нет песен — добавь свои mp3</div>') +
+      '<label class="btn big" style="margin-top:12px;display:block;text-align:center">＋ Добавить песни<input type="file" id="mu-add" accept="audio/*,.mp3,.m4a" multiple hidden></label></div>';
+    var tg = $('#mu-toggle'); if (tg) tg.onclick = function () { TripMusic.setMuted(!TripMusic.state().muted); };
+    var nx = $('#mu-next'); if (nx) nx.onclick = function () { TripMusic.next(); };
+    var vol = $('#mu-vol'); if (vol) vol.oninput = function () { TripMusic.setVolume(+vol.value); };
+    $('#mu-add').onchange = function (e) {
+      var files = e.target.files; if (!files.length) return;
+      toast('Добавляю…');
+      TripMusic.addFiles(files).then(function (n) {
+        toast(n ? 'Добавлено песен: ' + n + ' 🎶' : 'Это не похоже на аудиофайлы');
+        if (n) TripMusic.setMuted(false);
+      }).catch(function () { toast('Не хватило места в памяти браузера'); });
+    };
+    $$('.tracks [data-play]').forEach(function (b) { b.onclick = function () { TripMusic.playIndex(+b.dataset.play); }; });
+    $$('.tracks [data-del]').forEach(function (b) { b.onclick = function () { TripMusic.remove(b.dataset.del); }; });
+  }
+
   function applyTheme() {
     var t = lsGet('ts_theme', '');
     if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
@@ -992,6 +1193,11 @@
       openPlace(pool[Math.floor(Math.random() * pool.length)].id);
     };
     $('#btn-add-place').onclick = function () { openAddPlace(null, null); };
+    $('#btn-suggest').onclick = function () { openAddPlace(null, null); };
+    $('#btn-music').onclick = openMusic;
+    $('#btn-mute').onclick = function () { TripMusic.setMuted(!TripMusic.state().muted); };
+    TripMusic.onChange(function () { renderMusicButtons(); renderMusicSheet(); });
+    renderMusicButtons();
     $('#map-hint-cancel').onclick = function () { addMode = false; $('#map-hint').hidden = true; };
     document.addEventListener('keydown', function (e) {
       if (S.view !== 'swipe' || !$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
