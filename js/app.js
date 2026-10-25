@@ -596,6 +596,22 @@
     var id = uid(), last = planItems(day).reduce(function (m, x) { return Math.max(m, x.ord || 0); }, 0);
     change(function (st) { st.p[id] = { day: day, pid: pid || null, title: title || '', time: '', ord: last + 1, a: S.me.key, ts: now() }; });
   }
+  function concertPid() {
+    var p = ALL.filter(function (x) { return x.tags.indexOf('концерт') >= 0; })[0];
+    return p ? p.id : null;
+  }
+  function toMin(t) { var m = /^(\d{1,2}):(\d{2})/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : 0; }
+  function fmtDur(mins) { var h = Math.floor(mins / 60), m = mins % 60; return (h ? h + ' ч' : '') + (h && m ? ' ' : '') + (m ? m + ' мин' : ''); }
+  // Фиксированные события дня; 8 марта — из рейса, за который больше голосов
+  function fixedFor(d, flight) {
+    var list = (d.fixed || []).slice();
+    if (d.id === '03-08' && flight) {
+      var dep = /(\d\d:\d\d)/.exec(flight.dep), arr = /(\d\d:\d\d)/.exec(flight.arr);
+      if (dep) list.push({ time: dep[1], title: '🛫 ' + flight.title + ' — вылет из Changi T1' });
+      if (arr) list.push({ time: arr[1], title: '🛬 Прилёт в Инчхон T1' });
+    }
+    return list;
+  }
   function patchPlan(id, o) { change(function (st) { st.p[id] = Object.assign({}, st.p[id], o, { ts: now() }); }); }
   function renderPlan() {
     // Выбор рейса
@@ -615,24 +631,46 @@
       b.onclick = function () { var id = b.dataset.fl; change(function (st) { st.f[S.me.key] = [st.f[S.me.key] && st.f[S.me.key][0] === id ? '' : id, now()]; }); };
     });
 
-    // Дни
+    // Дни: фиксированные события (рейсы, концерты) и пункты плана в одной ленте по времени
+    var leadFlight = TRIP.flights.filter(function (f) { return f.id === lead; })[0];
     var html = TRIP.days.map(function (d) {
       var items = planItems(d.id);
       var cities = d.id === '03-08' ? ['sg', 'seoul', 'korea'] : d.city === 'seoul' ? ['seoul', 'korea'] : d.city === 'cn' ? ['cn', 'seoul', 'korea'] : [d.city];
       var cand = ALL.filter(function (p) { return cities.indexOf(p.city) >= 0 && (isMatch(p.id) || myVote(p.id) > 0 || likers(p.id).length); });
       cand.sort(function (a, b) { return (isMatch(b.id) ? 2 : 0) + (myVote(b.id) > 0 ? 1 : 0) - (isMatch(a.id) ? 2 : 0) - (myVote(a.id) > 0 ? 1 : 0); });
       var dn = notesOfDay(d.id);
-      var placesInDay = items.map(function (x) { return PLACE[x.pid]; }).filter(Boolean);
+      var rows = fixedFor(d, leadFlight).map(function (f) { return Object.assign({ fixed: true, pid: f.place === 'concert' ? concertPid() : null }, f); })
+        .concat(items);
+      // по времени; пункты без времени — в конце, в своём порядке
+      rows = rows.map(function (r, i) { return { r: r, i: i }; }).sort(function (a, b) {
+        var ta = a.r.time || '99:99', tb = b.r.time || '99:99';
+        return ta < tb ? -1 : ta > tb ? 1 : a.i - b.i;
+      }).map(function (x) { return x.r; });
+      var placesInDay = [];
+      rows.forEach(function (r) { var p = PLACE[r.pid]; if (p && placesInDay.indexOf(p) < 0) placesInDay.push(p); });
+      // промежуток показываем, только если рядом есть ваш пункт плана (между рейсом и рейсом или внутри концерта — не нужно)
+      var prev = null;
+      var timeline = rows.map(function (x) {
+        var gap = '';
+        if (x.time && prev && !(x.fixed && prev.fixed)) {
+          var mins = toMin(x.time) - toMin(prev.time);
+          if (mins >= 30) gap = '<div class="gap">⏳ ' + fmtDur(mins) + ' до следующего пункта (вместе с дорогой)</div>';
+        }
+        if (x.time) prev = x;
+        var p = PLACE[x.pid];
+        if (x.fixed) {
+          return gap + '<div class="pi fx' + (x.concert ? ' concert' : '') + '"><span class="t fx-t">' + esc(x.time) + '</span><div class="nm" ' + (p ? 'data-open="' + esc(p.id) + '"' : '') + '>' + esc(x.title) +
+            (p ? '<small>📍 ' + esc(p.name.split(' — ')[0]) + '</small>' : '') + '</div></div>';
+        }
+        var nm = p ? esc(p.name) + '<small>' + (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area) + '</small>' : esc(x.title) + '<small>' + esc(memberAv(x.a)) + ' своё</small>';
+        return gap + '<div class="pi" data-id="' + x.id + '"><input type="time" class="t" value="' + esc(x.time || '') + '"><div class="nm" ' + (p ? 'data-open="' + esc(p.id) + '"' : '') + '>' + nm + '</div>' +
+          '<div class="ops"><button data-op="up" title="Выше">↑</button><button data-op="down" title="Ниже">↓</button><button data-op="del" title="Убрать">✕</button></div></div>';
+      }).join('');
       return '<div class="day" data-day="' + d.id + '"><div class="day-h"><h3>' + CITY[d.city].flag + ' ' + d.title + '</h3>' +
         (placesInDay.length ? '<a class="btn sm" target="_blank" rel="noopener" href="' + TripExport.links.route(placesInDay) + '">🗺 Маршрут</a>' : '') + '</div>' +
         (d.events.length ? '<ul class="day-ev">' + d.events.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>' : '') +
         (d.hint ? '<div class="day-hint">' + esc(d.hint) + '</div>' : '') +
-        items.map(function (x) {
-          var p = PLACE[x.pid];
-          var nm = p ? esc(p.name) + '<small>' + (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area) + '</small>' : esc(x.title) + '<small>' + esc(memberAv(x.a)) + ' своё</small>';
-          return '<div class="pi" data-id="' + x.id + '"><input type="time" class="t" value="' + esc(x.time || '') + '"><div class="nm" ' + (p ? 'data-open="' + esc(p.id) + '"' : '') + '>' + nm + '</div>' +
-            '<div class="ops"><button data-op="up" title="Выше">↑</button><button data-op="down" title="Ниже">↓</button><button data-op="del" title="Убрать">✕</button></div></div>';
-        }).join('') +
+        timeline +
         '<div class="day-add"><select class="add-sel"><option value="">＋ Добавить место…</option>' +
         cand.map(function (p) { return '<option value="' + esc(p.id) + '">' + (isMatch(p.id) ? '💞 ' : myVote(p.id) > 0 ? '♥ ' : '· ') + esc(p.name) + '</option>'; }).join('') +
         '<option value="__custom">✏️ Своё (текстом)…</option></select></div>' +
@@ -654,7 +692,8 @@
       var nf = el.querySelector('.note-form');
       nf.querySelector('button').onclick = function () { var ta = nf.querySelector('textarea'); var t = ta.value.trim(); if (t) addNote({ d: day, t: t }); };
       bindNotes(el.querySelector('.notes'));
-      $$('.pi', el).forEach(function (row) {
+      $$('.pi.fx [data-open]', el).forEach(function (n) { n.onclick = function () { openPlace(n.dataset.open); }; });
+      $$('.pi[data-id]', el).forEach(function (row) {
         var id = row.dataset.id;
         row.querySelector('.t').onchange = function (e) { patchPlan(id, { time: e.target.value }); };
         row.querySelector('.nm').onclick = function () { var o = row.querySelector('[data-open]'); if (o) openPlace(o.dataset.open); };
@@ -689,6 +728,9 @@
   }
   function pinIcon(p, kind) {
     var cat = CATS[p.cat] || CATS.sight;
+    if (kind === 'concert') {
+      return window.L.divIcon({ className: '', html: '<div class="pin concert"><span>🎤</span></div><div class="pin-label">SKZ · 6–7 марта</div>', iconSize: [44, 44], iconAnchor: [22, 44], popupAnchor: [0, -42] });
+    }
     var col = kind === 'match' ? '#ff3d8b' : kind === 'dim' ? '#9a92ab' : cat.c;
     return window.L.divIcon({ className: '', html: '<div class="pin ' + kind + '" style="background:' + col + '"><span>' + cat.e + '</span></div>', iconSize: kind === 'match' ? [36, 36] : [30, 30], iconAnchor: kind === 'match' ? [18, 36] : [15, 30], popupAnchor: [0, -30] });
   }
@@ -714,7 +756,8 @@
     ALL.forEach(function (p) {
       if (p.city !== S.mapCity) return;
       var match = isMatch(p.id), mine = myVote(p.id) > 0, kind;
-      switch (S.mapMode) {
+      var concert = p.tags.indexOf('концерт') >= 0;
+      if (!concert) switch (S.mapMode) {
         case 'match': if (!match) return; break;
         case 'mine': if (!mine) return; break;
         case 'plan': if (!planned[p.id]) return; break;
@@ -723,9 +766,10 @@
       }
       kind = match ? 'match' : (likers(p.id).length ? '' : (S.mapMode === 'all' ? 'dim' : ''));
       if (myVote(p.id) < 0 && S.mapMode === 'all') kind = 'dim';
-      var mk = window.L.marker([p.lat, p.lng], { icon: pinIcon(p, kind), zIndexOffset: match ? 1000 : kind === 'dim' ? -100 : 0 });
+      if (concert) kind = 'concert';
+      var mk = window.L.marker([p.lat, p.lng], { icon: pinIcon(p, kind), zIndexOffset: concert ? 2000 : match ? 1000 : kind === 'dim' ? -100 : 0 });
       var who = likers(p.id).map(function (m) { return esc(m.av); }).join(' ');
-      mk.bindPopup('<b>' + esc(p.name) + '</b><br><span style="color:#888">' + (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area) + '</span>' + (who ? '<br>' + who : '') + '<br><button class="pop-btn" data-open="' + esc(p.id) + '">Подробнее</button>');
+      mk.bindPopup('<b>' + esc(p.name) + '</b><br><span style="color:#888">' + (concert ? '🎤 6 и 7 марта, начало 18:00' : (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area)) + '</span>' + (who ? '<br>' + who : '') + '<br><button class="pop-btn" data-open="' + esc(p.id) + '">Подробнее</button>');
       mk.addTo(layer); shown.push([p.lat, p.lng]);
     });
     if (lastMapCity !== S.mapCity + S.mapMode) {

@@ -211,6 +211,12 @@ main { flex: 1; min-height: 0; position: relative; }
 .pin.dim { opacity: .55; width: 22px; height: 22px; }
 .pin.dim span { font-size: 11px; }
 .pin.match { width: 36px; height: 36px; box-shadow: 0 0 0 4px rgba(255, 61, 139, .35), 0 3px 8px rgba(0, 0, 0, .3); }
+.pin.concert { width: 44px; height: 44px; background: var(--grad); border-width: 3px; box-shadow: 0 0 0 6px rgba(123, 77, 255, .35), 0 4px 12px rgba(0, 0, 0, .4); }
+.pin.concert span { font-size: 22px; }
+.pin-label {
+  position: absolute; left: 50%; top: 50px; transform: translateX(-50%); white-space: nowrap;
+  background: var(--ink); color: var(--bg); font: 800 11px Manrope, sans-serif; padding: 3px 8px; border-radius: 999px;
+}
 .leaflet-popup-content { font: 14px Manrope, sans-serif; margin: 10px 12px; }
 .leaflet-popup-content b { font-size: 14px; }
 .pop-btn { margin-top: 6px; border: 0; background: var(--accent2); color: #fff; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
@@ -276,11 +282,16 @@ main { flex: 1; min-height: 0; position: relative; }
 .day-ev li { padding: 4px 0 4px 10px; border-left: 3px solid var(--accent2); margin-bottom: 4px; }
 .day-hint { font-size: 13px; color: var(--ink2); margin: 4px 0 8px; }
 .pi { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
-.pi .t { width: 64px; flex: 0 0 auto; padding: 6px; font-size: 13px; border-radius: 10px; }
+.pi .t { width: 92px; flex: 0 0 auto; padding: 6px 4px; font-size: 13px; border-radius: 10px; }
 .pi .nm { flex: 1; min-width: 0; font-weight: 600; cursor: pointer; }
 .pi .nm small { display: block; color: var(--ink2); font-weight: 500; }
 .pi .ops { display: flex; gap: 2px; }
 .pi .ops button { border: 0; background: var(--chip); border-radius: 8px; width: 28px; height: 28px; font-size: 13px; }
+.pi.fx { padding: 8px 10px; margin: 6px -4px 0; border: 0; border-radius: 12px; background: var(--chip); }
+.pi.fx.concert { background: linear-gradient(135deg, rgba(255, 61, 139, .16), rgba(123, 77, 255, .2)); }
+.pi.fx + .pi:not(.fx), .gap + .pi { border-top: 0; }
+.fx-t { display: inline-block; text-align: center; font-weight: 800; border: 0; padding: 6px 0; }
+.gap { font-size: 12px; color: var(--ink2); padding: 4px 0 2px 100px; font-weight: 600; }
 .day-add { display: flex; gap: 8px; margin-top: 8px; }
 .day-add select { flex: 1; min-width: 0; }
 
