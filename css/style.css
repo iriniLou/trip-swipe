@@ -162,6 +162,12 @@ main { flex: 1; min-height: 0; position: relative; }
 .badge.hot { background: var(--accent); }
 .badge.must { background: #ffb000; color: #2b1d00; }
 .badge.sugg { background: var(--grad); }
+.badge.super-b { background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #2b1d00; font-size: 13px; font-weight: 800; padding: 6px 12px; box-shadow: 0 4px 14px rgba(255, 159, 28, .5); }
+.card.card-super { box-shadow: 0 0 0 3px #ffb000, 0 0 28px rgba(255, 176, 0, .45), var(--shadow); }
+.must-chip { background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #2b1d00 !important; border-radius: 999px; padding: 1px 8px; font-weight: 800; }
+.who-votes span.sv { background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #2b1d00; font-weight: 800; }
+.pin.super { width: 36px; height: 36px; box-shadow: 0 0 0 4px rgba(255, 176, 0, .55), 0 3px 8px rgba(0, 0, 0, .3); }
+.pin-star { position: absolute; top: -9px; right: -9px; transform: rotate(45deg); font-style: normal; font-size: 14px; }
 .sugg-dot { font-family: Manrope, sans-serif; font-size: 11px; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 6px; margin-left: 2px; }
 
 /* ——— Предложение места ——— */

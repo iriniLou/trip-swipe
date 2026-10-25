@@ -262,6 +262,7 @@
       onState: function (st) {
         var before = matchIds();
         var suggBefore = pendingSuggestions().map(function (p) { return p.id; });
+        var supBefore = superKeys();
         if (mergeInto(S.state, st)) {
           rebuildPlaces();
           lsSet('ts_state_' + S.code, S.state);
@@ -269,6 +270,11 @@
           var after = matchIds().filter(function (id) { return before.indexOf(id) < 0 && myVote(id) > 0; });
           var newSugg = pendingSuggestions().filter(function (p) { return suggBefore.indexOf(p.id) < 0; });
           if (after.length && !firstSync) showMatch(PLACE[after[0]], after.length);
+          var newSup = superKeys().filter(function (k) { return supBefore.indexOf(k) < 0; });
+          if (newSup.length && !firstSync && !newSugg.length) {
+            var ks = newSup[0].split('|'), sp = PLACE[ks[1]];
+            if (sp) toast('⭐ ' + memberName(ks[0]) + ' отметила «обязательно»: ' + sp.name + (newSup.length > 1 ? ' и ещё ' + (newSup.length - 1) : ''));
+          }
           if (newSugg.length) {
             var p = newSugg[0];
             toast('💡 ' + memberName(p.by) + ' предлагает: ' + p.name + (newSugg.length > 1 ? ' и ещё ' + (newSugg.length - 1) : '') + ' — уже первая в колоде');
@@ -346,11 +352,33 @@
       S.deck = S.deck.filter(function (id) { return ids[id]; });
       pool.forEach(function (p) { if (S.deck.indexOf(p.id) < 0) S.deck.push(p.id); });
     }
-    // Предложения подруги — всегда в начале колоды, самые свежие первыми
+    // Порядок: предложения подруги → её «обязательно» → её «хочу» → остальное.
+    // Карточку, которая уже лежит сверху, не трогаем, чтобы она не «уехала» из-под пальца.
+    var top = S.shownTop && pool.some(function (p) { return p.id === S.shownTop; }) ? S.shownTop : null;
+    var rank = function (id) {
+      var p = PLACE[id];
+      if (isSuggestionForMe(p)) return 0;
+      if (othersVote(id) === 2) return 1;
+      if (othersVote(id) === 1) return 2;
+      return 3;
+    };
     var sugg = pool.filter(isSuggestionForMe).sort(function (a, b) { return b.created - a.created; }).map(function (p) { return p.id; });
-    S.deck = sugg.concat(S.deck.filter(function (id) { return sugg.indexOf(id) < 0; }));
+    var rest = S.deck.filter(function (id) { return sugg.indexOf(id) < 0 && id !== top; });
+    rest = rest.map(function (id, i) { return { id: id, i: i, r: rank(id) }; })
+      .sort(function (a, b) { return a.r - b.r || a.i - b.i; }).map(function (x) { return x.id; });
+    S.deck = (top ? [top] : []).concat(sugg.filter(function (id) { return id !== top; }), rest);
     return S.deck;
   }
+  // самый сильный голос подруги (или подруг) за место: 2 — обязательно, 1 — хочу
+  function othersVote(pid) {
+    return others().reduce(function (m, o) { return Math.max(m, voteOf(o.key, pid)); }, 0);
+  }
+  // «имя|место» для всех «обязательно» подруг
+  function superKeys() {
+    var me = S.me.key;
+    return Object.keys(S.state.v).filter(function (k) { return S.state.v[k][0] === 2 && k.split('|')[0] !== me; });
+  }
+  function superBy(pid) { return members().filter(function (m) { return voteOf(m.key, pid) === 2; }); }
   function isSuggestionForMe(p) { return p.custom && p.by !== S.me.key && myVote(p.id) === 0; }
   function pendingSuggestions(city) { return ALL.filter(function (p) { return (!city || p.city === city) && isSuggestionForMe(p); }); }
   function renderSwipe() {
@@ -371,6 +399,7 @@
     var cityTotal = ALL.filter(function (p) { return p.city === S.city && (S.cat === 'all' || p.cat === S.cat); }).length;
     $('#deck-meta').textContent = deck.length ? 'Осталось ' + deck.length + ' из ' + cityTotal + ' · свайп вправо — хочу, влево — нет, вверх — обязательно' : '';
     var top = deck.slice(0, 3);
+    S.shownTop = top[0] || null;
     var curTop = el.querySelector('.card:not(.under)');
     if (curTop && curTop.dataset.id === top[0] && el.children.length === top.length) {
       // та же карта сверху — обновим только бейджи
@@ -419,7 +448,9 @@
     if (p.custom) b.push('<span class="badge sugg">💡 ' + esc(memberAv(p.by)) + ' ' + esc(memberName(p.by)) + (p.by === S.me.key ? ' (ты)' : '') + ' предлагает</span>');
     likers(p.id).forEach(function (m) {
       if (p.custom && m.key === p.by) return;
-      if (m.key !== S.me.key) b.push('<span class="badge hot">' + esc(m.av) + ' ' + esc(m.name) + (voteOf(m.key, p.id) === 2 ? ' очень хочет ★' : ' хочет ♥') + '</span>');
+      if (m.key === S.me.key) return;
+      if (voteOf(m.key, p.id) === 2) b.unshift('<span class="badge super-b">⭐ ' + esc(m.av) + ' ' + esc(m.name) + ': ОБЯЗАТЕЛЬНО!</span>');
+      else b.push('<span class="badge hot">' + esc(m.av) + ' ' + esc(m.name) + ' хочет ♥</span>');
     });
     if (p.tags.indexOf('must') >= 0) b.push('<span class="badge must">must see</span>');
     if (p.tags.indexOf('вечер') >= 0 || p.tags.indexOf('ночь') >= 0) b.push('<span class="badge">🌙 вечером</span>');
@@ -427,6 +458,7 @@
     var notes = notesFor(p.id).length;
     if (notes) b.push('<span class="badge">📝 ' + notes + '</span>');
     var el = c.querySelector('.badges'); if (el) el.innerHTML = b.join('');
+    c.classList.toggle('card-super', others().some(function (m) { return voteOf(m.key, p.id) === 2; }));
   }
   function bindDrag(card) {
     var sx = 0, sy = 0, dx = 0, dy = 0, active = false;
@@ -479,7 +511,7 @@
     if (!u) { toast('Нечего возвращать'); return; }
     change(function (st) { st.v[S.me.key + '|' + u.pid] = [u.prev, now()]; });
     var p = PLACE[u.pid];
-    if (p) { S.city = p.city; S.deck.unshift(u.pid); S.deckKey = p.city + '|' + S.cat + '|' + S.me.key; }
+    if (p) { S.city = p.city; S.deck.unshift(u.pid); S.shownTop = u.pid; S.deckKey = p.city + '|' + S.cat + '|' + S.me.key; }
     $('#deck').innerHTML = '';
     render();
   }
@@ -542,6 +574,7 @@
     var inPlan = planFor(p.id);
     return '<div class="row" data-id="' + esc(p.id) + '"><div class="th" ' + phHTML(p) + '><span class="emo">' + cat.e + '</span></div>' +
       '<div class="tx"><b>' + esc(p.name) + '</b><div class="meta"><span>' + CITY[p.city].flag + ' ' + esc(p.area) + '</span><span>' + PRICE[p.price] + '</span>' +
+      (superBy(p.id).length ? '<span class="must-chip">⭐ обязательно: ' + superBy(p.id).map(function (m) { return esc(m.av) + ' ' + esc(m.name); }).join(', ') + '</span>' : '') +
       (inPlan.length ? '<span>📅 ' + inPlan.map(function (x) { return DAY[x.day] ? DAY[x.day].title : x.day; }).join(', ') + '</span>' : '') +
       (notesFor(p.id).length ? '<span>📝 ' + notesFor(p.id).length + '</span>' : '') + '</div></div><div class="votes">' + vs + '</div></div>';
   }
@@ -579,7 +612,7 @@
       '<div class="meta"><span>' + CITY[p.city].flag + ' ' + esc(p.area) + '</span><span>' + cat.e + ' ' + cat.n + '</span><span>' + PRICE[p.price] + '</span>' + (p.time ? '<span>⏱ ' + esc(p.time) + '</span>' : '') + '</div>' +
       '<p>' + esc(p.desc) + '</p>' + (p.tip ? '<div class="tip">💡 ' + esc(p.tip) + '</div>' : '') +
       (p.tags.length ? '<div class="tags">' + p.tags.map(function (t) { return '<span>#' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
-      '<div class="who-votes">' + members().map(function (m) { var v = voteOf(m.key, pid); return '<span>' + esc(m.av) + ' ' + esc(m.name) + ': ' + (v === 2 ? '★ обязательно' : v === 1 ? '♥ хочу' : v < 0 ? '✕ нет' : '— ещё не решила') + '</span>'; }).join('') + '</div>' +
+      '<div class="who-votes">' + members().map(function (m) { var v = voteOf(m.key, pid); return '<span' + (v === 2 ? ' class="sv"' : '') + '>' + esc(m.av) + ' ' + esc(m.name) + ': ' + (v === 2 ? '★ обязательно' : v === 1 ? '♥ хочу' : v < 0 ? '✕ нет' : '— ещё не решила') + '</span>'; }).join('') + '</div>' +
       '<div class="vote-row"><button class="n ' + (mv < 0 ? 'on' : '') + '" data-vote="-1">✕ Нет</button><button class="l ' + (mv === 1 ? 'on' : '') + '" data-vote="1">♥ Хочу</button><button class="s ' + (mv === 2 ? 'on' : '') + '" data-vote="2">★ Обязательно</button></div>' +
       '<div class="btn-row"><a class="btn sm" target="_blank" rel="noopener" href="' + L.google(p) + '">Google Maps</a><a class="btn sm" target="_blank" rel="noopener" href="' + L.apple(p) + '">Apple Карты</a>' +
       (korea ? '<a class="btn sm" target="_blank" rel="noopener" href="' + L.naver(p) + '">Naver Map</a><a class="btn sm" target="_blank" rel="noopener" href="' + L.kakao(p) + '">KakaoMap</a>' : '') + '</div>' +
@@ -781,8 +814,10 @@
     if (kind === 'concert') {
       return window.L.divIcon({ className: '', html: '<div class="pin concert"><span>🎤</span></div><div class="pin-label">SKZ · 6–7 марта</div>', iconSize: [44, 44], iconAnchor: [22, 44], popupAnchor: [0, -42] });
     }
-    var col = kind === 'match' ? '#ff3d8b' : kind === 'dim' ? '#9a92ab' : cat.c;
-    return window.L.divIcon({ className: '', html: '<div class="pin ' + kind + '" style="background:' + col + '"><span>' + cat.e + '</span></div>', iconSize: kind === 'match' ? [36, 36] : [30, 30], iconAnchor: kind === 'match' ? [18, 36] : [15, 30], popupAnchor: [0, -30] });
+    var big = /match|super/.test(kind);
+    var col = /match/.test(kind) ? '#ff3d8b' : kind === 'dim' ? '#9a92ab' : cat.c;
+    return window.L.divIcon({ className: '', html: '<div class="pin ' + kind + '" style="background:' + col + '"><span>' + cat.e + '</span>' + (/super/.test(kind) ? '<i class="pin-star">⭐</i>' : '') + '</div>',
+      iconSize: big ? [36, 36] : [30, 30], iconAnchor: big ? [18, 36] : [15, 30], popupAnchor: [0, -30] });
   }
   function renderMap() {
     citySeg($('#map-city-seg'), S.mapCity, function (v) { S.mapCity = v; lastMapCity = null; render(); });
@@ -817,9 +852,11 @@
       kind = match ? 'match' : (likers(p.id).length ? '' : (S.mapMode === 'all' ? 'dim' : ''));
       if (myVote(p.id) < 0 && S.mapMode === 'all') kind = 'dim';
       if (concert) kind = 'concert';
+      else if (superBy(p.id).length && kind !== 'dim') kind += ' super';
       var mk = window.L.marker([p.lat, p.lng], { icon: pinIcon(p, kind), zIndexOffset: concert ? 2000 : match ? 1000 : kind === 'dim' ? -100 : 0 });
       var who = likers(p.id).map(function (m) { return esc(m.av); }).join(' ');
-      mk.bindPopup('<b>' + esc(p.name) + '</b><br><span style="color:#888">' + (concert ? '🎤 6 и 7 марта, начало 18:00' : (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area)) + '</span>' + (who ? '<br>' + who : '') + '<br><button class="pop-btn" data-open="' + esc(p.id) + '">Подробнее</button>');
+      var sup = superBy(p.id).map(function (m) { return esc(m.name); }).join(', ');
+      mk.bindPopup('<b>' + esc(p.name) + '</b>' + (sup ? '<br><b style="color:#d99000">⭐ обязательно: ' + sup + '</b>' : '') + '<br><span style="color:#888">' + (concert ? '🎤 6 и 7 марта, начало 18:00' : (CATS[p.cat] || CATS.sight).e + ' ' + esc(p.area)) + '</span>' + (who ? '<br>' + who : '') + '<br><button class="pop-btn" data-open="' + esc(p.id) + '">Подробнее</button>');
       mk.addTo(layer); shown.push([p.lat, p.lng]);
     });
     if (lastMapCity !== S.mapCity + S.mapMode) {
