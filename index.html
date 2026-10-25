@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Трип-свайп</title>
+<meta name="description" content="Сингапур и Корея: свайпаем места вдвоём, мэтчи, карта, план и заметки">
+<meta name="theme-color" content="#16121f">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💜</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+
+<!-- ВХОД В КОМНАТУ -->
+<section id="gate" class="gate" hidden>
+  <div class="gate-inner">
+    <div class="logo">💜</div>
+    <h1>Трип-свайп</h1>
+    <p class="gate-sub">Сингапур · Сеул · Корея<br>свайпаем места вдвоём и собираем план</p>
+
+    <div id="gate-start" class="gate-step">
+      <button class="btn big primary" id="btn-create">Создать нашу комнату</button>
+      <div class="or">или</div>
+      <form id="join-form" class="join-form">
+        <input id="join-code" placeholder="Код комнаты" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <button class="btn big" type="submit">Войти по коду</button>
+      </form>
+      <div id="recent-rooms"></div>
+    </div>
+
+    <div id="gate-who" class="gate-step" hidden>
+      <div class="code-card">
+        <div class="muted">Код вашей комнаты</div>
+        <div class="code" id="gate-code"></div>
+        <div class="muted small">Подруга вводит этот код на своём телефоне — и вы попадаете в одну сводку</div>
+      </div>
+      <h2>Кто ты?</h2>
+      <div id="member-picks" class="member-picks"></div>
+      <input id="me-name" placeholder="Имя" maxlength="20">
+      <div class="muted small">Выбери своего SKZOO</div>
+      <div id="avatar-grid" class="avatar-grid"></div>
+      <button class="btn big primary" id="btn-enter">Погнали 🚀</button>
+    </div>
+  </div>
+</section>
+
+<!-- ПРИЛОЖЕНИЕ -->
+<div id="app" hidden>
+  <header class="top">
+    <button class="room-pill" id="room-pill" title="Комната">
+      <span id="sync-dot" class="dot"></span><span id="room-code-top"></span>
+    </button>
+    <div class="who" id="who-top"></div>
+  </header>
+
+  <main>
+    <!-- СВАЙПЫ -->
+    <section class="view" id="view-swipe">
+      <div class="seg" id="city-seg"></div>
+      <div class="chips" id="cat-chips"></div>
+      <div class="deck-wrap">
+        <div class="deck" id="deck"></div>
+        <div class="deck-empty" id="deck-empty" hidden></div>
+      </div>
+      <div class="deck-meta" id="deck-meta"></div>
+      <div class="controls">
+        <button class="ctl undo" id="ctl-undo" title="Вернуть">↩</button>
+        <button class="ctl nope" id="ctl-nope" title="Не хочу">✕</button>
+        <button class="ctl super" id="ctl-super" title="Обязательно!">★</button>
+        <button class="ctl like" id="ctl-like" title="Хочу">♥</button>
+        <button class="ctl info" id="ctl-info" title="Подробнее">i</button>
+      </div>
+    </section>
+
+    <!-- МЭТЧИ И СПИСКИ -->
+    <section class="view" id="view-lists" hidden>
+      <div class="seg" id="list-city-seg"></div>
+      <div class="seg small-seg" id="list-mode-seg"></div>
+      <div class="list-tools">
+        <input id="list-search" placeholder="Поиск по названию или району">
+        <button class="btn" id="btn-random">🎲 Куда идём?</button>
+      </div>
+      <div id="list" class="list"></div>
+    </section>
+
+    <!-- КАРТА -->
+    <section class="view" id="view-map" hidden>
+      <div id="map"></div>
+      <div class="map-ui">
+        <div class="seg" id="map-city-seg"></div>
+        <div class="seg small-seg" id="map-mode-seg"></div>
+      </div>
+      <button class="fab" id="btn-add-place" title="Добавить своё место">＋</button>
+      <div class="map-hint" id="map-hint" hidden>Нажми на карту, где находится место <button class="link" id="map-hint-cancel">отмена</button></div>
+    </section>
+
+    <!-- ПЛАН -->
+    <section class="view" id="view-plan" hidden>
+      <div id="flight-box"></div>
+      <div id="days"></div>
+    </section>
+
+    <!-- ЕЩЁ -->
+    <section class="view" id="view-more" hidden>
+      <div class="seg" id="more-seg"></div>
+      <div id="more-body"></div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="swipe" class="on"><span>🔥</span>Свайпы</button>
+    <button data-view="lists"><span>💞</span>Мэтчи<b id="match-badge" hidden></b></button>
+    <button data-view="map"><span>🗺️</span>Карта</button>
+    <button data-view="plan"><span>📅</span>План</button>
+    <button data-view="more"><span>✨</span>Ещё</button>
+  </nav>
+</div>
+
+<!-- Шторка с подробностями -->
+<div class="sheet-back" id="sheet-back" hidden></div>
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-grip"></div>
+  <div id="sheet-body"></div>
+</div>
+
+<div class="match-pop" id="match-pop" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/vendor/nostr.bundle.js?v=3"></script>
+<script src="js/data/_base.js?v=3"></script>
+<script src="js/data/sg.js?v=3"></script>
+<script src="js/data/seoul.js?v=3"></script>
+<script src="js/data/korea.js?v=3"></script>
+<script src="js/data/transit.js?v=3"></script>
+<script src="js/trip.js?v=3"></script>
+<script src="js/tips.js?v=3"></script>
+<script src="js/sync.js?v=3"></script>
+<script src="js/export.js?v=3"></script>
+<script src="js/app.js?v=3"></script>
+</body>
+</html>
