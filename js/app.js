@@ -680,10 +680,11 @@
   // ——— Карта ———
   var map = null, layer = null, tileLayer = null, addMode = false, lastMapCity = null;
   function dark() { return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark'; }
-  function tiles() { return 'https://{s}.basemaps.cartocdn.com/' + (dark() ? 'dark_all' : 'rastertiles/voyager') + '/{z}/{x}/{y}{r}.png'; }
+  // Тайлы OpenStreetMap работают без ключа на любом домене; в тёмной теме затемняем их CSS-фильтром
   function L_map(id, center, zoom, opts) {
     var m = window.L.map(id, Object.assign({ zoomControl: true }, opts || {})).setView(center, zoom);
-    window.L.tileLayer(tiles(), { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO' }).addTo(m);
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(m);
+    m.getContainer().classList.toggle('dark-tiles', dark());
     return m;
   }
   function pinIcon(p, kind) {

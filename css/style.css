@@ -197,6 +197,7 @@ main { flex: 1; min-height: 0; position: relative; }
 
 /* ——— Карта ——— */
 #map { position: absolute; inset: 0; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 1; background: var(--bg); }
+.dark-tiles .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6); }
 .map-ui { position: absolute; top: 0; left: 0; right: 0; z-index: 500; padding: 4px 12px 0; pointer-events: none; }
 .map-ui .seg { pointer-events: auto; }
 .map-ui .seg button { box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
